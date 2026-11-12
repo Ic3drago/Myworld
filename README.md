@@ -2,9 +2,9 @@
 
 > **Encuentra tu gente. Encuentra tu lugar.**
 
-Prototipo **frontend** de una red social para gamers, anime, tecnología, música y creatividad. Permite descubrir comunidades, encontrar personas con tus mismos intereses, buscar equipo para proyectos, inscribirse a eventos y conversar por chat — todo con **datos mock** y estado local (sin backend).
+Aplicación full-stack para descubrir comunidades, conectar personas, publicar búsquedas de equipo, inscribirse a eventos y conversar. El frontend React/TypeScript consume una API Express y guarda el estado de cada cuenta en SQLite.
 
-> ⚠️ **Esto es un prototipo de interfaz**, no un producto terminado: no hay servidor, ni autenticación real, ni base de datos. Al recargar la página el estado vuelve a su valor inicial.
+> La autenticación y las acciones principales ya son persistentes. Push, envío de correo, chat en tiempo real, comentarios y compartir todavía no tienen un proveedor/backend implementado.
 
 ---
 
@@ -14,6 +14,7 @@ Prototipo **frontend** de una red social para gamers, anime, tecnología, músic
 - [Stack tecnológico](#-stack-tecnológico)
 - [Requisitos previos](#-requisitos-previos)
 - [Instalación y ejecución](#-instalación-y-ejecución)
+- [Backend local](#-backend-local)
 - [Scripts disponibles](#-scripts-disponibles)
 - [Estructura del proyecto](#-estructura-del-proyecto)
 - [Rutas de la aplicación](#-rutas-de-la-aplicación)
@@ -30,8 +31,8 @@ Prototipo **frontend** de una red social para gamers, anime, tecnología, músic
 ## 🚀 Vista rápida
 
 ```bash
-# 1. Entra al proyecto
-cd c:\Users\Andres\Desktop\copeten
+# 1. Entra a la carpeta del proyecto
+cd /ruta/a/Myworld-main
 
 # 2. Instala dependencias (solo la primera vez)
 npm install
@@ -44,7 +45,9 @@ Abre **http://localhost:5173** en el navegador. La app recarga automáticamente 
 
 | Comando | Para qué sirve |
 | --- | --- |
-| `npm run dev` | Servidor de desarrollo con HMR en `http://localhost:5173` |
+| `npm run dev` | API Express + Vite con HMR en `http://localhost:5173` |
+| `npm run dev:api` | Solo la API en `http://localhost:3001` |
+| `npm run dev:web` | Solo Vite en `http://localhost:5173` |
 | `npm run build` | Typecheck (`tsc --noEmit`) + build de producción en `dist/` |
 | `npm run preview` | Sirve localmente el contenido ya compilado de `dist/` |
 | `npm run typecheck` | Solo valida tipos, sin compilar ni empaquetar |
@@ -61,13 +64,17 @@ Abre **http://localhost:5173** en el navegador. La app recarga automáticamente 
 | Enrutado | React Router DOM | `7.18` |
 | Estilos | Tailwind CSS | `3.4` |
 | Iconos | lucide-react | `1.69` |
+| API | Express | `5` |
+| Base de datos | SQLite (`better-sqlite3`) | `12` |
+| Validación de entrada | Zod | `4` |
+| Sesión/contraseña | JWT en cookie HttpOnly + bcrypt | — |
 | Post-proceso CSS | PostCSS + Autoprefixer | `8.5` / `10.6` |
 
 Decisiones relevantes:
 
 - **Tailwind v3** (no v4) para poder usar la configuración clásica `tailwind.config.js` + `postcss.config.js` y las utilidades `@apply` en `globals.css`.
 - **TypeScript 7** ya **no admite `baseUrl`**, por eso los alias se declaran solo con `paths` (ver [Convenciones](#-convenciones-del-código)).
-- Estado global con **React Context + `useReducer`‑style setters** (sin Redux/Zustand) para mantener el prototipo ligero.
+- Estado de interfaz con React Context; los datos de dominio se cargan y persisten mediante la API.
 
 ---
 
@@ -91,32 +98,16 @@ Descarga Node.js LTS desde <https://nodejs.org/> si no lo tienes instalado.
 
 ## 🛠️ Instalación y ejecución
 
-### Opción A — PowerShell (Windows, recomendado)
+### Cualquier sistema operativo
 
 ```powershell
 # 1) Ir a la carpeta del proyecto
-Set-Location 'c:\Users\Andres\Desktop\copeten'
+Set-Location '/ruta/a/Myworld-main'
 
 # 2) Instalar dependencias
 npm install
 
 # 3) Arrancar en modo desarrollo
-npm run dev
-```
-
-### Opción B — CMD / Terminal integrada de VS Code
-
-```bat
-cd c:\Users\Andres\Desktop\copeten
-npm install
-npm run dev
-```
-
-### Opción C — macOS / Linux
-
-```bash
-cd /ruta/a/copeten
-npm install
 npm run dev
 ```
 
@@ -155,7 +146,10 @@ Definidos en `package.json`:
 ```json
 {
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -n api,web \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "tsx watch server/index.ts",
+    "dev:web": "vite",
+    "start:api": "tsx server/index.ts",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
@@ -165,32 +159,48 @@ Definidos en `package.json`:
 
 | Script | Qué hace | Cuándo usarlo |
 | --- | --- | --- |
-| `dev` | Levanta Vite con recarga en caliente (HMR). | Desarrollo diario. |
+| `dev` | Levanta Express y Vite con recarga en caliente (HMR). | Desarrollo diario. |
+| `dev:api` | Levanta Express y observa cambios del servidor. | Depurar la API. |
+| `dev:web` | Levanta solo Vite. | Trabajar solo en UI. |
+| `start:api` | Ejecuta el servidor API. | Ejecutar backend manualmente. |
 | `build` | Valida tipos y genera el bundle optimizado en `dist/`. | Antes de entregar/publicar. |
 | `preview` | Sirve `dist/` tal cual (sin HMR). | Verificar el build final. |
 | `typecheck` | Solo `tsc --noEmit`; no emite archivos. | Revisar errores de tipos rápidamente. |
 
-> El servidor de desarrollo ocupa el puerto **5173** por defecto. Si está ocupado, Vite usará 5174, 5175, etc. Para forzar otro puerto:
-> `npm run dev -- --port 5180`
+> Vite usa **5173** y la API **3001** por defecto. Si 5173 está ocupado, Vite selecciona otro puerto.
+
+## 🗄️ Backend local
+
+- La primera ejecución crea `server/nexora.sqlite` y carga comunidades, eventos, posts y perfiles de ejemplo. La base está ignorada por Git.
+- Regístrate desde la pantalla inicial. Las contraseñas se guardan con bcrypt; la sesión usa una cookie HttpOnly y SameSite=Lax.
+- Las membresías, conexiones, favoritos, likes, inscripciones, mensajes y preferencias se guardan por cuenta.
+- `SESSION_SECRET` permite configurar la firma de sesión. El valor de desarrollo por defecto no debe usarse en un despliegue público.
+- `DATABASE_PATH` permite elegir otra ubicación para el archivo SQLite.
+- `/api/health` sirve para comprobar que la API está activa.
+
+Durante desarrollo el frontend envía a `/api` y Vite lo reenvía a `http://localhost:3001`.
 
 ---
 
 ## 🗂️ Estructura del proyecto
 
 ```text
-copeten/
+Myworld-main/
 ├─ index.html                  # HTML raíz (monta #root, fuentes y meta)
-├─ package.json                # Dependencias y scripts
+├─ package.json                # Dependencias y scripts de frontend/backend
 ├─ package-lock.json           # Versiones bloqueadas (npm ci)
 ├─ postcss.config.js           # Tailwind + Autoprefixer
 ├─ tailwind.config.js          # Tema: colores night/brand/azure, sombras, animaciones
 ├─ tsconfig.json               # Opciones de TS + alias "@/*"
-├─ vite.config.ts              # Plugin React + alias "@"
+├─ vite.config.ts              # Plugin React, alias "@" y proxy /api
+├─ server/
+│  ├─ index.ts                 # API Express, autenticación y rutas
+│  └─ db.ts                    # Esquema SQLite y carga inicial
 ├─ .gitignore
 ├─ README.md
 └─ src/
    ├─ main.tsx                 # Punto de entrada: ReactDOM + App
-   ├─ App.tsx                  # Providers (AppProvider + BrowserRouter) y rutas
+  ├─ App.tsx                  # BrowserRouter, sesión y rutas
    ├─ vite-env.d.ts
    ├─ styles/
    │  └─ globals.css           # @tailwind, estilos base, .card-surface, .text-gradient…
@@ -205,15 +215,19 @@ copeten/
    ├─ utils/
    │  ├─ constants.ts          # BRAND, NAV_ITEMS, filtros de categorías/intereses
    │  └─ helpers.ts            # cn(), formateadores (fechas, números, iniciales)
-   ├─ data/                    # Datos mock (arrays estáticos tipados)
+  ├─ data/                    # Datos semilla que se cargan en SQLite al iniciar
    │  ├─ users.ts
    │  ├─ communities.ts
    │  ├─ events.ts
    │  ├─ posts.ts
    │  ├─ messages.ts
    │  └─ notifications.ts
-   ├─ context/
-   │  └─ AppContext.tsx        # Store central: estado + acciones + toasts (useApp)
+  ├─ api/
+  │  ├─ client.ts             # Cliente HTTP con cookies y errores
+  │  └─ types.ts              # Respuesta inicial de la aplicación
+  ├─ context/
+  │  ├─ AppContext.tsx        # Estado de UI y acciones remotas
+  │  └─ AuthContext.tsx       # Sesión de usuario
    ├─ hooks/
    │  ├─ useUsers.ts           # Filtrado/búsqueda de personas
    │  ├─ useCommunities.ts     # Filtrado de comunidades por categoría/estado
@@ -269,6 +283,8 @@ Todas las rutas cuelgan de `MainLayout` (sidebar + header + contenido + panel de
 
 | Ruta | Pantalla | Componente | Qué puedes hacer |
 | --- | --- | --- | --- |
+| `/login` | Acceso | `pages/Auth/AuthPage.tsx` | Iniciar sesión con correo y contraseña |
+| `/register` | Registro | `pages/Auth/AuthPage.tsx` | Crear cuenta |
 | `/` | Inicio | `pages/Dashboard/Dashboard.tsx` | Feed con posts (like/guardar), métricas y recomendaciones |
 | `/discover` | Descubrir comunidades | `pages/Discover/Discover.tsx` | Explorar comunidades y unirte con un clic |
 | `/people` | Encuentra personas | `pages/People/People.tsx` | Buscar/filtrar por interés, conectar, abrir perfil |
@@ -285,15 +301,15 @@ Todas las rutas cuelgan de `MainLayout` (sidebar + header + contenido + panel de
 
 ## ✨ Funcionalidades
 
-### Interacciones globales (persisten en memoria durante la sesión)
+### Cuenta y datos persistentes
 
-- **Conectar / desconectar** personas (`connectUser`) → toast de confirmación.
-- **Unirse / salir** de comunidades (`joinCommunity` / `leaveCommunity`).
-- **Inscribirse a eventos** (`joinEvent`) → incrementa `participants`.
-- **Like** en posts (`toggleLike`) → actualiza `likes` y marca `liked`.
-- **Guardar / quitar** de Guardados (`toggleFavorite`).
-- **Notificaciones**: marcar como leídas (`markNotificationRead`).
-- **Chat**: enviar mensajes (`sendMessage`) → actualiza el hilo y el badge de no leídos.
+- Registro e inicio de sesión con contraseñas hash y cookie de sesión HttpOnly.
+- **Conectar / desconectar** personas; al conectar se crea una conversación.
+- **Unirse / salir** de comunidades e **inscribirse** a eventos.
+- **Like**, publicar una búsqueda de equipo y guardar posts, comunidades y personas.
+- Mensajes guardados por conversación y estado de lectura.
+- Notificaciones y preferencias de perfil guardadas por cuenta.
+- Edición del nombre/usuario y cierre real de sesión.
 - **Modal de perfil**: abrir la ficha de cualquier usuario (`openProfile` / `closeProfile`).
 - **Toasts**: feedback visual temporal (`pushToast`, auto-cierre a los 3.2 s).
 
@@ -321,7 +337,7 @@ Todas las rutas cuelgan de `MainLayout` (sidebar + header + contenido + panel de
 
 ## 🧠 Cómo funciona el estado global
 
-Todo el estado vive en **`src/context/AppContext.tsx`**, se inyecta en `App.tsx` mediante `<AppProvider>` y se consume con el hook `useApp()`.
+Los datos se cargan desde `GET /api/bootstrap`. `AppContext` centraliza la vista y las acciones, `AuthContext` mantiene la sesión y Express valida/autorizada las operaciones antes de persistirlas en SQLite.
 
 ```tsx
 import { useApp } from '@/context/AppContext';
@@ -337,13 +353,13 @@ function MiComponente() {
 | Grupo | Miembros |
 | --- | --- |
 | **Datos base** | `user`, `people`, `communities`, `events`, `posts`, `notifications`, `conversations` |
-| **Estado de sesión** | `connections`, `joinedCommunities`, `favorites`, `joinedEvents`, `likedPosts` (arrays de ids) |
+| **Estado de cuenta** | `connections`, `joinedCommunities`, `favorites`, `joinedEvents`, `likedPosts` (IDs devueltos por la API) |
 | **UI global** | `activeConversationId`, `profileUserId`, `toasts` |
-| **Acciones** | `connectUser(id)`, `joinCommunity(id)`, `leaveCommunity(id)`, `joinEvent(id)`, `toggleFavorite(id)`, `toggleLike(postId)`, `markNotificationRead(id)`, `markAllNotificationsRead()`, `openConversation(id)`, `sendMessage(conversationId, text)`, `openProfile(userId)`, `closeProfile()`, `pushToast(message, variant?)`, `dismissToast(id)` |
+| **Acciones** | `connectUser(id)`, `joinCommunity(id)`, `leaveCommunity(id)`, `joinEvent(id)`, `toggleFavorite(id)`, `toggleLike(postId)`, `createPost(...)`, `updateProfile(...)`, `sendMessage(...)`, `markNotificationRead(id)`, `openProfile(userId)` |
 | **Selectores** | `isConnected(id)`, `isJoined(id)`, `isFavorite(id)`, `isEventJoined(id)`, `isPostLiked(id)`, `getUser(id)`, `getCommunity(id)` |
 | **Derivados** | `unreadMessageCount`, `unreadNotificationCount` |
 
-Truco importante: las acciones **no** llaman a `setState` dentro de otro updater de `setState`; leen el estado actual y luego aplican los cambios de forma secuencial. Así se evitan las advertencias de React por actualizar estado durante el render.
+Las acciones mutan datos mediante la API y vuelven a cargar el bootstrap. Las cookies se envían automáticamente con `credentials: 'include'`.
 
 ### Hooks de dominio (encapsulan filtros + acciones)
 
@@ -351,11 +367,11 @@ Truco importante: las acciones **no** llaman a `setState` dentro de otro updater
 | --- | --- | --- |
 | `useUsers()` | `filtered`, `query`/`setQuery`, `interest`/`setInterest`, `onlyOnline`/`setOnlyOnline`, `reset`, `connectUser`, `isConnected`, `openProfile` | `People`, `FindTeam` |
 | `useCommunities()` | `filtered`, `myCommunities`, `query`/`setQuery`, `category`/`setCategory`, `reset`, `joinCommunity`, `leaveCommunity`, `isJoined`, `toggleFavorite`, `isFavorite` | `Discover`, `Communities` |
-| `useFavorites()` | `favorites`, `savedCommunities`, `savedPeople`, `total`, `toggleFavorite`, `isFavorite` | `Saved` |
+| `useFavorites()` | `favorites`, `savedCommunities`, `savedPeople`, `savedPosts`, `toggleFavorite`, `isFavorite` | `Saved` |
 
 ---
 
-## 🗃️ Datos mock
+## 🗃️ Datos semilla
 
 Los datos están en `src/data/*.ts` como arrays tipados exportados:
 
@@ -368,7 +384,7 @@ export const people: User[] = [ /* … */ ];
 export const communities: Community[] = [ /* … */ ];
 ```
 
-Para cambiar el contenido de la demo, edita esos archivos (o los tipos en `src/types/`). Se importan una sola vez en `AppContext` como estado inicial (`seed*`), así que los cambios se reflejan al instante con el HMR.
+Los arrays existentes se usan como datos iniciales: se insertan en SQLite si la base está vacía. Luego, las modificaciones viven en `server/nexora.sqlite`; editar los archivos de semillas no sobrescribe registros ya existentes.
 
 - `users.ts` → `currentUser` + `people` (con `interests`, `games`, `online`, `lookingForTeam`…).
 - `communities.ts` → nombre, descripción, categoría, miembros, tags y gradiente.
@@ -482,25 +498,23 @@ Añadir/quitar secciones se hace solo en `NAV_ITEMS` (`src/utils/constants.ts`),
 
 ---
 
-## 🚧 Limitaciones conocidas
+## 🚧 Alcance actual
 
-Este prototipo está pensado para **demostrar UI/UX**, no para producción:
-
-- ❌ **Sin backend, API ni base de datos**: todo son datos mock en `src/data/`.
-- ❌ **Sin persistencia**: al recargar, likes/conexiones/guardados/mensajes vuelven al estado inicial (no hay `localStorage`).
-- ❌ **Sin autenticación**: el usuario actual es `currentUser` en `src/data/users.ts`.
-- ❌ **Chat simulado**: los mensajes se añaden al hilo, pero nadie responde.
-- ❌ **Tema solo oscuro**: la tarjeta de apariencia es informativa.
-- ❌ **Acciones no implementadas**: **Comentarios** y **Compartir** solo lanzan un toast informativo; tampoco hay subida de imágenes ni guardado real del formulario de perfil.
-- ❌ **Sin tests automatizados**: la validación actual es `npm run typecheck` + `npm run build`.
-- ⚠️ **Carpeta `Myworld/`** en la raíz: repo git ajeno al proyecto. No se usa ni se importa.
+- SQLite está pensado para desarrollo local y una instancia de servidor; no hay migraciones gestionadas ni configuración de despliegue.
+- El secreto JWT predeterminado es solo para desarrollo. Antes de publicar, define `SESSION_SECRET` fuerte y activa HTTPS.
+- No hay verificación de correo, recuperación de contraseña, envío real de emails/push ni rate limiting.
+- El chat persiste, pero no es en tiempo real; los mensajes los envía el usuario actual y no existe servicio para recibir respuestas externas.
+- Comentarios, compartir y subida de imágenes siguen sin backend.
+- Las preferencias de email/push se guardan, pero no disparan notificaciones externas.
+- Aún no hay suite de pruebas automatizadas; `npm run build` valida TypeScript y el bundle.
+- La carpeta `Myworld/` en la raíz es un repositorio aparte y no forma parte de esta aplicación.
 
 ---
 
 ## 📄 Licencia y uso
 
-Prototipo **educativo / demostrativo** de interfaz. Úsalo y modifícalo libremente para tus prácticas, demos o portafolio. Los nombres de usuarios, comunidades y eventos son ficticios.
+Aplicación local de demostración. Los perfiles y contenidos precargados son ficticios.
 
 ---
 
-Hecho con ⚡ **React + TypeScript + Vite + Tailwind CSS** — *NEXORA · Encuentra tu gente. Encuentra tu lugar.*
+Hecho con **React + TypeScript + Vite + Tailwind CSS + Express + SQLite** — *NEXORA · Encuentra tu gente. Encuentra tu lugar.*

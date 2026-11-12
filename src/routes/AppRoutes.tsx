@@ -1,4 +1,4 @@
-import { Link, Route, Routes } from 'react-router-dom';
+import { Link, Navigate, Route, Routes } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Dashboard } from '@/pages/Dashboard/Dashboard';
 import { Discover } from '@/pages/Discover/Discover';
@@ -11,6 +11,9 @@ import { Saved } from '@/pages/Saved/Saved';
 import { Settings } from '@/pages/Settings/Settings';
 import { Profile } from '@/pages/Profile/Profile';
 import { Button } from '@/components/ui/Button';
+import { AppProvider, useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
+import { AuthPage } from '@/pages/Auth/AuthPage';
 
 function NotFound() {
   return (
@@ -30,8 +33,49 @@ function NotFound() {
 }
 
 export function AppRoutes() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="grid min-h-screen place-items-center text-sm text-slate-400">Conectando con NEXORA…</div>;
+  }
+
+  if (!user) {
+    return (
+      <Routes>
+        <Route path="*" element={<AuthPage />} />
+      </Routes>
+    );
+  }
+
+  return (
+    <AppProvider>
+      <AuthenticatedRoutes />
+    </AppProvider>
+  );
+}
+
+function AuthenticatedRoutes() {
+  const { loading, loadError, retryLoad } = useApp();
+
+  if (loading) {
+    return <div className="grid min-h-screen place-items-center text-sm text-slate-400">Cargando tus comunidades…</div>;
+  }
+
+  if (loadError) {
+    return (
+      <div className="grid min-h-screen place-items-center px-4 text-center">
+        <div>
+          <p className="text-sm text-rose-300">{loadError}</p>
+          <Button className="mt-4" onClick={retryLoad}>Reintentar</Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Routes>
+      <Route path="/login" element={<Navigate to="/" replace />} />
+      <Route path="/register" element={<Navigate to="/" replace />} />
       <Route element={<MainLayout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/discover" element={<Discover />} />

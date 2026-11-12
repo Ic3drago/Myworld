@@ -5,12 +5,13 @@ import { Button } from '@/components/ui/Button';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { CommunityCard } from '@/components/communities/CommunityCard';
 import { UserCard } from '@/components/users/UserCard';
+import { PostCard } from '@/components/dashboard/PostCard';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useFavorites } from '@/hooks/useFavorites';
 
 export function Saved() {
-  const { savedCommunities, savedPeople } = useFavorites();
-  const shown = savedCommunities.length + savedPeople.length;
+  const { savedCommunities, savedPeople, savedPosts } = useFavorites();
+  const shown = savedCommunities.length + savedPeople.length + savedPosts.length;
 
   return (
     <div>
@@ -56,6 +57,15 @@ export function Saved() {
                 {savedPeople.map((person) => (
                   <UserCard key={person.id} user={person} />
                 ))}
+              </div>
+            </section>
+          )}
+
+          {savedPosts.length > 0 && (
+            <section>
+              <SectionHeader eyebrow="Publicaciones" title="Posts guardados" />
+              <div className="space-y-3">
+                {savedPosts.map((post) => <PostCard key={post.id} post={post} />)}
               </div>
             </section>
           )}

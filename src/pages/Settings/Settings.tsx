@@ -4,10 +4,14 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { cn } from '@/utils/helpers';
 
+type PreferenceKey = 'push' | 'email' | 'online';
+
 interface ToggleOption {
-  key: string;
+  key: PreferenceKey;
   label: string;
   description: string;
   icon: LucideIcon;
@@ -34,12 +38,13 @@ const TOGGLES: ToggleOption[] = [
   },
 ];
 
-function Switch({ checked, onChange }: { checked: boolean; onChange: (value: boolean) => void }) {
+function Switch({ checked, label, onChange }: { checked: boolean; label: string; onChange: (value: boolean) => void }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={label}
       onClick={() => onChange(!checked)}
       className={cn(
         'ring-focus relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200',
@@ -56,14 +61,18 @@ function Switch({ checked, onChange }: { checked: boolean; onChange: (value: boo
   );
 }
 export function Settings() {
-  const { user, pushToast } = useApp();
+  const { user, updateProfile, preferences, updatePreferences } = useApp();
+  const { logout } = useAuth();
+  const navigate = useNavigate();
   const [name, setName] = useState(user.name);
   const [handle, setHandle] = useState(user.handle);
-  const [prefs, setPrefs] = useState<Record<string, boolean>>({
-    push: true,
-    email: false,
-    online: true,
-  });
+  const [prefs, setPrefs] = useState(preferences);
+
+  const changePreference = (key: keyof typeof preferences, value: boolean) => {
+    const next = { ...prefs, [key]: value };
+    setPrefs(next);
+    void updatePreferences(next);
+  };
 
   return (
     <div>
@@ -74,7 +83,7 @@ export function Settings() {
         actions={
           <Button
             leftIcon={<Save className="h-4 w-4" />}
-            onClick={() => pushToast('Ajustes guardados (demo) ✅')}
+            onClick={() => void updateProfile(name, handle)}
           >
             Guardar cambios
           </Button>
@@ -117,9 +126,8 @@ export function Settings() {
                     </div>
                     <Switch
                       checked={Boolean(prefs[option.key])}
-                      onChange={(value) =>
-                        setPrefs((prev) => ({ ...prev, [option.key]: value }))
-                      }
+                      label={option.label}
+                      onChange={(value) => changePreference(option.key, value)}
                     />
                   </div>
                 );
@@ -156,7 +164,7 @@ export function Settings() {
               fullWidth
               className="mt-3"
               leftIcon={<LogOut className="h-4 w-4" />}
-              onClick={() => pushToast('Sesión cerrada (demo)', 'info')}
+              onClick={() => void logout().finally(() => navigate('/login', { replace: true }))}
             >
               Cerrar sesión
             </Button>

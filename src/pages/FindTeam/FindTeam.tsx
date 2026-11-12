@@ -1,6 +1,8 @@
+import { useState, type FormEvent } from 'react';
 import { Plus, Gamepad2, Lightbulb } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { PostCard } from '@/components/dashboard/PostCard';
 import { UserCard } from '@/components/users/UserCard';
@@ -10,7 +12,11 @@ import { useApp } from '@/context/AppContext';
 const POPULAR_GAMES = ['Valorant', 'Fortnite', 'Minecraft', 'Apex Legends', 'Genshin Impact'];
 
 export function FindTeam() {
-  const { posts, people, pushToast } = useApp();
+  const { posts, people, createPost } = useApp();
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [content, setContent] = useState('');
+  const [tagsText, setTagsText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const teamPosts = posts.filter((post) => post.type === 'team');
   const available = people.filter((person) => person.online && person.games.length > 0);
 
@@ -23,7 +29,7 @@ export function FindTeam() {
         actions={
           <Button
             leftIcon={<Plus className="h-4 w-4" />}
-            onClick={() => pushToast('Búsqueda de equipo publicada (demo) 🎮')}
+            onClick={() => setComposerOpen(true)}
           >
             Publicar búsqueda
           </Button>
@@ -93,6 +99,57 @@ export function FindTeam() {
           </div>
         </aside>
       </div>
+
+      <Modal
+        open={composerOpen}
+        onClose={() => setComposerOpen(false)}
+        title="Publicar búsqueda de equipo"
+        description="Cuéntale a la comunidad qué juego y grupo estás buscando."
+      >
+        <form
+          className="space-y-4"
+          onSubmit={async (event: FormEvent<HTMLFormElement>) => {
+            event.preventDefault();
+            setSubmitting(true);
+            const tags = tagsText.split(',').map((tag) => tag.trim().replace(/^#/, '')).filter(Boolean);
+            const created = await createPost(content, tags, 'team');
+            setSubmitting(false);
+            if (created) {
+              setContent('');
+              setTagsText('');
+              setComposerOpen(false);
+            }
+          }}
+        >
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-slate-300">Descripción</span>
+            <textarea
+              required
+              maxLength={2000}
+              rows={5}
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              placeholder="Juego, horario, nivel y qué tipo de equipo buscas…"
+              className="w-full resize-y rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-brand-500/60 focus:outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-slate-300">Etiquetas</span>
+            <input
+              value={tagsText}
+              onChange={(event) => setTagsText(event.target.value)}
+              placeholder="Valorant, ranked, noche"
+              className="h-10 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-brand-500/60 focus:outline-none"
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={() => setComposerOpen(false)}>Cancelar</Button>
+            <Button type="submit" disabled={submitting || !content.trim()}>
+              {submitting ? 'Publicando…' : 'Publicar'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

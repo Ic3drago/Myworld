@@ -1,25 +1,8 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react';
-import type {
-  AppNotification,
-  Community,
-  Conversation,
-  EventItem,
-  Post,
-  User,
-} from '@/types';
-import { currentUser, people as seedPeople } from '@/data/users';
-import { communities as seedCommunities } from '@/data/communities';
-import { events as seedEvents } from '@/data/events';
-import { posts as seedPosts } from '@/data/posts';
-import { conversations as seedConversations } from '@/data/messages';
-import { notifications as seedNotifications } from '@/data/notifications';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { apiRequest } from '@/api/client';
+import type { AppBootstrap } from '@/api/types';
+import type { Community, Post, PostType, User } from '@/types';
+import { useAuth } from '@/context/AuthContext';
 
 export interface Toast {
   id: string;
@@ -31,21 +14,20 @@ interface AppContextValue {
   user: User;
   people: User[];
   communities: Community[];
-  events: EventItem[];
+  events: AppBootstrap['events'];
   posts: Post[];
-  notifications: AppNotification[];
-  conversations: Conversation[];
-
+  notifications: AppBootstrap['notifications'];
+  conversations: AppBootstrap['conversations'];
   connections: string[];
   joinedCommunities: string[];
   favorites: string[];
   joinedEvents: string[];
   likedPosts: string[];
-
   activeConversationId: string | null;
   profileUserId: string | null;
   toasts: Toast[];
-
+  loading: boolean;
+  loadError: string | null;
   connectUser: (id: string) => void;
   joinCommunity: (id: string) => void;
   leaveCommunity: (id: string) => void;
@@ -56,6 +38,10 @@ interface AppContextValue {
   markAllNotificationsRead: () => void;
   openConversation: (id: string) => void;
   sendMessage: (conversationId: string, text: string) => void;
+  createPost: (content: string, tags: string[], type: PostType) => Promise<boolean>;
+  updateProfile: (name: string, handle: string) => Promise<void>;
+  updatePreferences: (preferences: AppBootstrap['preferences']) => Promise<void>;
+  retryLoad: () => void;
   openProfile: (userId: string) => void;
   closeProfile: () => void;
   pushToast: (message: string, variant?: Toast['variant']) => void;
@@ -70,6 +56,7 @@ interface AppContextValue {
   getCommunity: (id: string) => Community | undefined;
   unreadMessageCount: number;
   unreadNotificationCount: number;
+  preferences: AppBootstrap['preferences'];
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -77,223 +64,172 @@ const AppContext = createContext<AppContextValue | null>(null);
 let toastCounter = 0;
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const user = currentUser;
-  const [people] = useState<User[]>(seedPeople);
-  const [communities] = useState<Community[]>(seedCommunities);
-  const [events, setEvents] = useState<EventItem[]>(seedEvents);
-  const [posts, setPosts] = useState<Post[]>(seedPosts);
-  const [conversations, setConversations] = useState<Conversation[]>(seedConversations);
-  const [notifications, setNotifications] = useState<AppNotification[]>(seedNotifications);
-
-  const [connections, setConnections] = useState<string[]>([]);
-  const [joinedCommunities, setJoinedCommunities] = useState<string[]>(['c-latam', 'c-minecraft']);
-  const [favorites, setFavorites] = useState<string[]>([]);
-  const [joinedEvents, setJoinedEvents] = useState<string[]>(
-    seedEvents.filter((e) => e.joined).map((e) => e.id),
-  );
-  const [likedPosts, setLikedPosts] = useState<string[]>([]);
-
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(
-    seedConversations[0]?.id ?? null,
-  );
+  const { user: authUser, updateUser } = useAuth();
+  const [data, setData] = useState<AppBootstrap | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+
   const pushToast = useCallback((message: string, variant: Toast['variant'] = 'success') => {
     toastCounter += 1;
     const id = `toast-${toastCounter}`;
-    setToasts((prev) => [...prev, { id, message, variant }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3200);
+    setToasts((previous) => [...previous, { id, message, variant }]);
+    window.setTimeout(() => setToasts((previous) => previous.filter((toast) => toast.id !== id)), 3200);
   }, []);
 
-  const dismissToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
+  const dismissToast = useCallback((id: string) => setToasts((previous) => previous.filter((toast) => toast.id !== id)), []);
+  const refresh = useCallback(async () => {
+    const next = await apiRequest<AppBootstrap>('/bootstrap');
+    setData(next);
+    setActiveConversationId((current) => current ?? next.activeConversationId);
+    return next;
   }, []);
 
-  const connectUser = useCallback(
-    (id: string) => {
-      const target = people.find((p) => p.id === id);
-      if (connections.includes(id)) {
-        setConnections((prev) => prev.filter((c) => c !== id));
-        pushToast(`Conexión retirada con ${target?.name ?? 'usuario'}`, 'info');
-      } else {
-        setConnections((prev) => [...prev, id]);
-        pushToast(`¡Conectaste con ${target?.name ?? 'usuario'}! 🎉`);
-      }
-    },
-    [connections, people, pushToast],
-  );
+  useEffect(() => {
+    let active = true;
+    apiRequest<AppBootstrap>('/bootstrap')
+      .then((next) => {
+        if (!active) return;
+        setData(next);
+        setActiveConversationId(next.activeConversationId);
+      })
+      .catch((cause: unknown) => {
+        if (active) setLoadError(cause instanceof Error ? cause.message : 'No se pudo cargar la aplicación.');
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
 
-  const joinCommunity = useCallback(
-    (id: string) => {
-      if (joinedCommunities.includes(id)) return;
-      setJoinedCommunities((prev) => [...prev, id]);
-      const community = communities.find((c) => c.id === id);
-      pushToast(`Te uniste a ${community?.name ?? 'la comunidad'} 🚀`);
-    },
-    [joinedCommunities, communities, pushToast],
-  );
+  const retryLoad = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
+    refresh()
+      .catch((cause: unknown) => setLoadError(cause instanceof Error ? cause.message : 'No se pudo cargar la aplicación.'))
+      .finally(() => setLoading(false));
+  }, [refresh]);
 
-  const leaveCommunity = useCallback(
-    (id: string) => {
-      setJoinedCommunities((prev) => prev.filter((c) => c !== id));
-      const community = communities.find((c) => c.id === id);
-      pushToast(`Saliste de ${community?.name ?? 'la comunidad'}`, 'info');
-    },
-    [communities, pushToast],
-  );
+  const runAction = useCallback(async (
+    path: string,
+    options: RequestInit,
+    message?: string,
+    variant: Toast['variant'] = 'success',
+  ) => {
+    try {
+      await apiRequest<void>(path, options);
+      await refresh();
+      if (message) pushToast(message, variant);
+    } catch (cause) {
+      pushToast(cause instanceof Error ? cause.message : 'No se pudo completar la acción.', 'error');
+    }
+  }, [pushToast, refresh]);
 
-  const joinEvent = useCallback(
-    (id: string) => {
-      if (joinedEvents.includes(id)) return;
-      setJoinedEvents((prev) => [...prev, id]);
-      setEvents((prev) =>
-        prev.map((e) => (e.id === id ? { ...e, participants: e.participants + 1 } : e)),
-      );
-      const event = events.find((e) => e.id === id);
-      pushToast(`¡Inscrito en ${event?.title ?? 'el evento'}! 📅`);
-    },
-    [joinedEvents, events, pushToast],
-  );
-
-  const toggleFavorite = useCallback(
-    (id: string) => {
-      if (favorites.includes(id)) {
-        setFavorites((prev) => prev.filter((f) => f !== id));
-        pushToast('Eliminado de guardados', 'info');
-      } else {
-        setFavorites((prev) => [...prev, id]);
-        pushToast('Guardado en tu colección ⭐');
-      }
-    },
-    [favorites, pushToast],
-  );
-
-  const toggleLike = useCallback(
-    (postId: string) => {
-      const already = likedPosts.includes(postId);
-      setLikedPosts((prev) =>
-        already ? prev.filter((id) => id !== postId) : [...prev, postId],
-      );
-      setPosts((prev) =>
-        prev.map((p) =>
-          p.id === postId ? { ...p, likes: p.likes + (already ? -1 : 1), liked: !already } : p,
-        ),
-      );
-    },
-    [likedPosts],
-  );
+  const connectUser = useCallback((id: string) => {
+    const connected = data?.connections.includes(id) ?? false;
+    const name = data?.people.find((person) => person.id === id)?.name ?? 'usuario';
+    void runAction(`/connections/${encodeURIComponent(id)}/toggle`, { method: 'POST' },
+      connected ? `Conexión retirada con ${name}` : `Conectaste con ${name}`, connected ? 'info' : 'success');
+  }, [data, runAction]);
+  const joinCommunity = useCallback((id: string) => {
+    void runAction(`/communities/${encodeURIComponent(id)}/membership`, { method: 'POST' }, 'Te uniste a la comunidad.');
+  }, [runAction]);
+  const leaveCommunity = useCallback((id: string) => {
+    void runAction(`/communities/${encodeURIComponent(id)}/membership`, { method: 'DELETE' }, 'Saliste de la comunidad.', 'info');
+  }, [runAction]);
+  const joinEvent = useCallback((id: string) => {
+    void runAction(`/events/${encodeURIComponent(id)}/join`, { method: 'POST' }, 'Te inscribiste al evento.');
+  }, [runAction]);
+  const toggleFavorite = useCallback((id: string) => {
+    const entityType = data?.posts.some((post) => post.id === id) ? 'post'
+      : data?.communities.some((community) => community.id === id) ? 'community' : 'user';
+    const saved = data?.favorites.includes(id) ?? false;
+    void runAction('/favorites/toggle', { method: 'POST', body: JSON.stringify({ entityId: id, entityType }) },
+      saved ? 'Eliminado de guardados.' : 'Guardado en tu colección.', saved ? 'info' : 'success');
+  }, [data, runAction]);
+  const toggleLike = useCallback((id: string) => {
+    void runAction(`/posts/${encodeURIComponent(id)}/like/toggle`, { method: 'POST' });
+  }, [runAction]);
   const markNotificationRead = useCallback((id: string) => {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
-  }, []);
-
+    void runAction(`/notifications/${encodeURIComponent(id)}/read`, { method: 'POST' });
+  }, [runAction]);
   const markAllNotificationsRead = useCallback(() => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  }, []);
-
+    void runAction('/notifications/read-all', { method: 'POST' });
+  }, [runAction]);
   const openConversation = useCallback((id: string) => {
     setActiveConversationId(id);
-    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, unread: 0 } : c)));
-  }, []);
-
-  const sendMessage = useCallback(
-    (conversationId: string, text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed) return;
-      const time = new Date().toLocaleTimeString('es', {
-        hour: '2-digit',
-        minute: '2-digit',
+    void runAction(`/conversations/${encodeURIComponent(id)}/read`, { method: 'POST' });
+  }, [runAction]);
+  const sendMessage = useCallback((conversationId: string, text: string) => {
+    if (!text.trim()) return;
+    void runAction(`/conversations/${encodeURIComponent(conversationId)}/messages`, {
+      method: 'POST', body: JSON.stringify({ text }),
+    });
+  }, [runAction]);
+  const createPost = useCallback(async (content: string, tags: string[], type: PostType) => {
+    try {
+      await apiRequest('/posts', { method: 'POST', body: JSON.stringify({ content, tags, type }) });
+      await refresh();
+      pushToast('Publicación creada.');
+      return true;
+    } catch (cause) {
+      pushToast(cause instanceof Error ? cause.message : 'No se pudo crear la publicación.', 'error');
+      return false;
+    }
+  }, [pushToast, refresh]);
+  const updateProfile = useCallback(async (name: string, handle: string) => {
+    try {
+      const result = await apiRequest<{ user: User }>('/me', {
+        method: 'PATCH', body: JSON.stringify({ name, handle }),
       });
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === conversationId
-            ? {
-                ...c,
-                messages: [
-                  ...c.messages,
-                  {
-                    id: `m-${Date.now()}`,
-                    senderId: user.id,
-                    text: trimmed,
-                    time,
-                    mine: true,
-                  },
-                ],
-              }
-            : c,
-        ),
-      );
-    },
-    [user.id],
-  );
+      updateUser(result.user);
+      setData((current) => current ? { ...current, user: result.user } : current);
+      pushToast('Perfil actualizado.');
+    } catch (cause) {
+      pushToast(cause instanceof Error ? cause.message : 'No se pudo actualizar el perfil.', 'error');
+    }
+  }, [pushToast, updateUser]);
+  const updatePreferences = useCallback(async (preferences: AppBootstrap['preferences']) => {
+    try {
+      await apiRequest('/preferences', { method: 'PATCH', body: JSON.stringify(preferences) });
+      await refresh();
+      pushToast('Preferencias guardadas.');
+    } catch (cause) {
+      pushToast(cause instanceof Error ? cause.message : 'No se pudieron guardar las preferencias.', 'error');
+    }
+  }, [pushToast, refresh]);
 
-  const openProfile = useCallback((userId: string) => setProfileUserId(userId), []);
-  const closeProfile = useCallback(() => setProfileUserId(null), []);
-
-  const isConnected = useCallback((id: string) => connections.includes(id), [connections]);
-  const isJoined = useCallback((id: string) => joinedCommunities.includes(id), [joinedCommunities]);
-  const isFavorite = useCallback((id: string) => favorites.includes(id), [favorites]);
-  const isEventJoined = useCallback((id: string) => joinedEvents.includes(id), [joinedEvents]);
-  const isPostLiked = useCallback((id: string) => likedPosts.includes(id), [likedPosts]);
-
-  const getUser = useCallback(
-    (id: string) => (id === user.id ? user : people.find((p) => p.id === id)),
-    [people, user],
-  );
-  const getCommunity = useCallback(
-    (id: string) => communities.find((c) => c.id === id),
-    [communities],
-  );
-
-  const unreadMessageCount = useMemo(
-    () => conversations.reduce((sum, c) => sum + c.unread, 0),
-    [conversations],
-  );
-  const unreadNotificationCount = useMemo(
-    () => notifications.filter((n) => !n.read).length,
-    [notifications],
-  );
+  const user = data?.user ?? authUser!;
+  const people = data?.people ?? [];
+  const communities = data?.communities ?? [];
+  const events = data?.events ?? [];
+  const posts = data?.posts ?? [];
+  const notifications = data?.notifications ?? [];
+  const conversations = data?.conversations ?? [];
+  const connections = data?.connections ?? [];
+  const joinedCommunities = data?.joinedCommunities ?? [];
+  const favorites = data?.favorites ?? [];
+  const joinedEvents = data?.joinedEvents ?? [];
+  const likedPosts = data?.likedPosts ?? [];
+  const isConnected = (id: string) => connections.includes(id);
+  const isJoined = (id: string) => joinedCommunities.includes(id);
+  const isFavorite = (id: string) => favorites.includes(id);
+  const isEventJoined = (id: string) => joinedEvents.includes(id);
+  const isPostLiked = (id: string) => likedPosts.includes(id);
+  const getUser = (id: string) => id === user.id ? user : people.find((person) => person.id === id);
+  const getCommunity = (id: string) => communities.find((community) => community.id === id);
 
   const value: AppContextValue = {
-    user,
-    people,
-    communities,
-    events,
-    posts,
-    notifications,
-    conversations,
-    connections,
-    joinedCommunities,
-    favorites,
-    joinedEvents,
-    likedPosts,
-    activeConversationId,
-    profileUserId,
-    toasts,
-    connectUser,
-    joinCommunity,
-    leaveCommunity,
-    joinEvent,
-    toggleFavorite,
-    toggleLike,
-    markNotificationRead,
-    markAllNotificationsRead,
-    openConversation,
-    sendMessage,
-    openProfile,
-    closeProfile,
-    pushToast,
-    dismissToast,
-    isConnected,
-    isJoined,
-    isFavorite,
-    isEventJoined,
-    isPostLiked,
-    getUser,
-    getCommunity,
-    unreadMessageCount,
-    unreadNotificationCount,
+    user, people, communities, events, posts, notifications, conversations, connections,
+    joinedCommunities, favorites, joinedEvents, likedPosts, activeConversationId,
+    profileUserId, toasts, loading, loadError, connectUser, joinCommunity, leaveCommunity,
+    joinEvent, toggleFavorite, toggleLike, markNotificationRead, markAllNotificationsRead,
+    openConversation, sendMessage, createPost, updateProfile, updatePreferences, retryLoad,
+    openProfile: setProfileUserId, closeProfile: () => setProfileUserId(null),
+    pushToast, dismissToast, isConnected, isJoined, isFavorite, isEventJoined, isPostLiked,
+    getUser, getCommunity, unreadMessageCount: data?.unreadMessageCount ?? 0,
+    unreadNotificationCount: data?.unreadNotificationCount ?? 0,
+    preferences: data?.preferences ?? { push: true, email: false, online: true },
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

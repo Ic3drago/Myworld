@@ -1,13 +1,13 @@
 import { useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
-import type { Community, User } from '@/types';
+import type { Community, Post, User } from '@/types';
 
 /**
  * Resolves the raw favorite ids stored in app state into typed
  * Community/User collections for the Saved page.
  */
 export function useFavorites() {
-  const { favorites, toggleFavorite, isFavorite, getUser, getCommunity } = useApp();
+  const { favorites, posts, toggleFavorite, isFavorite, getUser, getCommunity } = useApp();
 
   const savedCommunities = useMemo(
     () =>
@@ -25,10 +25,16 @@ export function useFavorites() {
     [favorites, getUser],
   );
 
+  const savedPosts = useMemo(
+    () => favorites.map((id) => posts.find((post) => post.id === id)).filter((post): post is Post => Boolean(post)),
+    [favorites, posts],
+  );
+
   return {
     favorites,
     savedCommunities,
     savedPeople,
+    savedPosts,
     total: favorites.length,
     toggleFavorite,
     isFavorite,
